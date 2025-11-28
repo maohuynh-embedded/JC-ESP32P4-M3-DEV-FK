@@ -188,4 +188,58 @@ menu "Example Configuration"
             help
                 H.264 maximum quality, the value should be larger than H.264 minimum quality.
     endif
+
+    menu "Camera Debug Configuration"
+        config CAMERA_DEBUG_ENABLE
+            bool "Enable Camera Debug Logging"
+            default n
+            help
+                Enable camera debug logging to analyze frame data, statistics, and performance.
+
+        config CAMERA_DEBUG_STATS
+            bool "Enable Statistics Logging"
+            default y
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Log frame statistics including FPS, bitrate, frame sizes.
+
+        config CAMERA_DEBUG_HEADER
+            bool "Enable Image Header Analysis"
+            default y
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Analyze and log JPEG/H264 header information.
+
+        config CAMERA_DEBUG_HEX_HEADER
+            bool "Enable Hex Dump of Frame Header"
+            default n
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Display hex dump of first 256 bytes of each frame.
+                Warning: Generates a lot of log data!
+
+        config CAMERA_DEBUG_HEX_FULL
+            bool "Enable Full Frame Hex Dump"
+            default n
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Display hex dump of entire frame.
+                WARNING: This generates MASSIVE amounts of log data and will severely impact performance!
+                Only use for debugging specific frames.
+
+        config CAMERA_DEBUG_TIMING
+            bool "Enable Timing Information"
+            default n
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Log detailed timing information for each frame.
+
+        config CAMERA_DEBUG_PRINT_INTERVAL
+            int "Statistics Print Interval (frames)"
+            default 100
+            range 1 1000
+            depends on CAMERA_DEBUG_ENABLE
+            help
+                Print accumulated statistics every N frames.
+    endmenu
 endmenu

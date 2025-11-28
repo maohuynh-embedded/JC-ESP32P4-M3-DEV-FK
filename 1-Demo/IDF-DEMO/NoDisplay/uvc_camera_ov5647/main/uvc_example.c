@@ -19,6 +19,10 @@
 #include "usb_device_uvc.h"
 #include "uvc_frame_config.h"
 
+#ifdef CONFIG_CAMERA_DEBUG_ENABLE
+#include "camera_debug.h"
+#endif
+
 #if CONFIG_EXAMPLE_CAM_SENSOR_MIPI_CSI
 #define CAM_DEV_PATH        ESP_VIDEO_MIPI_CSI_DEVICE_NAME
 #elif CONFIG_EXAMPLE_CAM_SENSOR_DVP
@@ -51,6 +55,10 @@ typedef struct uvc {
 } uvc_t;
 
 static const char *TAG = "example";
+
+#ifdef CONFIG_CAMERA_DEBUG_ENABLE
+static uint32_t s_debug_frame_counter = 0;
+#endif
 
 #if CONFIG_EXAMPLE_CAM_SENSOR_MIPI_CSI
 static const esp_video_init_csi_config_t csi_config[] = {
@@ -427,6 +435,18 @@ static uvc_fb_t *video_fb_get_cb(void *cb_ctx)
     uvc->fb.timestamp.tv_sec = us / 1000000UL;;
     uvc->fb.timestamp.tv_usec = us % 1000000UL;
 
+#ifdef CONFIG_CAMERA_DEBUG_ENABLE
+    // Process frame data for debugging
+    camera_debug_process_frame(uvc->fb.buf, uvc->fb.len, us);
+
+    s_debug_frame_counter++;
+
+    // Print statistics periodically
+    if (s_debug_frame_counter % CONFIG_CAMERA_DEBUG_PRINT_INTERVAL == 0) {
+        camera_debug_print_stats();
+    }
+#endif
+
     return &uvc->fb;
 }
 
@@ -473,6 +493,32 @@ void app_main(void)
 {
     uvc_t *uvc = calloc(1, sizeof(uvc_t));
     assert(uvc);
+
+#ifdef CONFIG_CAMERA_DEBUG_ENABLE
+    // Initialize camera debug module
+    uint32_t debug_level = 0;
+
+#ifdef CONFIG_CAMERA_DEBUG_STATS
+    debug_level |= CAM_DEBUG_STATS;
+#endif
+#ifdef CONFIG_CAMERA_DEBUG_HEADER
+    debug_level |= CAM_DEBUG_HEADER;
+#endif
+#ifdef CONFIG_CAMERA_DEBUG_HEX_HEADER
+    debug_level |= CAM_DEBUG_HEX_HEADER;
+#endif
+#ifdef CONFIG_CAMERA_DEBUG_HEX_FULL
+    debug_level |= CAM_DEBUG_HEX_FULL;
+#endif
+#ifdef CONFIG_CAMERA_DEBUG_TIMING
+    debug_level |= CAM_DEBUG_TIMING;
+#endif
+
+    if (debug_level > 0) {
+        ESP_ERROR_CHECK(camera_debug_init(debug_level));
+        ESP_LOGI(TAG, "Camera debug enabled with level: 0x%02lX", debug_level);
+    }
+#endif
 
     ESP_ERROR_CHECK(esp_video_init(&cam_config));
     ESP_ERROR_CHECK(init_capture_video(uvc));
