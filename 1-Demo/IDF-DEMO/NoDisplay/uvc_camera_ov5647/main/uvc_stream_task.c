@@ -131,36 +131,74 @@ static esp_err_t video_start_cb(uvc_format_t uvc_format, int width, int height, 
 
     ESP_LOGI(UVC_TAG, "UVC start: %dx%d @%dfps", width, height, rate);
 
-    /* Determine capture format */
+    /* Determine capture format
+     * IMPORTANT: OV5647 outputs RAW Bayer (RGBP) by default
+     * We need to explicitly check if ISP-processed formats are available
+     */
     if (g_app_ctx.uvc->format == V4L2_PIX_FMT_JPEG) {
+        /* Try YUV/RGB formats in order - skip RAW Bayer formats */
         const uint32_t jpeg_input_formats[] = {
-            V4L2_PIX_FMT_RGB565, V4L2_PIX_FMT_YUV422P,
-            V4L2_PIX_FMT_RGB24, V4L2_PIX_FMT_GREY
+            V4L2_PIX_FMT_YUV422P,   // Preferred: YUV 4:2:2 Planar
+            V4L2_PIX_FMT_YUYV,      // YUV 4:2:2 Packed
+            V4L2_PIX_FMT_NV12,      // YUV 4:2:0 (Y/CbCr)
+            V4L2_PIX_FMT_RGB24,     // RGB888
+            V4L2_PIX_FMT_RGB565,    // RGB565
         };
-        int fmt_index = 0;
 
-        while (!capture_fmt && fmt_index < 4) {
+        /* List all available formats for debugging */
+        ESP_LOGI(UVC_TAG, "=== Available camera formats ===");
+        for (int i = 0; i < 10; i++) {
             struct v4l2_fmtdesc fmtdesc = {
-                .index = fmt_index++,
+                .index = i,
                 .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
             };
-
             if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
-                for (int i = 0; i < 4; i++) {
+                ESP_LOGI(UVC_TAG, "  [%d] 0x%08x (%c%c%c%c): %s", i, fmtdesc.pixelformat,
+                        (char)(fmtdesc.pixelformat & 0xFF),
+                        (char)((fmtdesc.pixelformat >> 8) & 0xFF),
+                        (char)((fmtdesc.pixelformat >> 16) & 0xFF),
+                        (char)((fmtdesc.pixelformat >> 24) & 0xFF),
+                        fmtdesc.description);
+            } else {
+                break;
+            }
+        }
+
+        /* Try to find a compatible format */
+        for (int i = 0; i < 5; i++) {
+            for (int idx = 0; idx < 10; idx++) {
+                struct v4l2_fmtdesc fmtdesc = {
+                    .index = idx,
+                    .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+                };
+
+                if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
                     if (jpeg_input_formats[i] == fmtdesc.pixelformat) {
                         capture_fmt = jpeg_input_formats[i];
-                        break;
+                        ESP_LOGI(UVC_TAG, "Selected format: 0x%08x (%s)", capture_fmt, fmtdesc.description);
+                        goto format_found;
                     }
+                } else {
+                    break;
                 }
             }
         }
 
+format_found:
         if (!capture_fmt) {
-            ESP_LOGE(UVC_TAG, "No compatible JPEG input format");
-            return ESP_ERR_NOT_SUPPORTED;
+            ESP_LOGW(UVC_TAG, "No preferred YUV/RGB format found, using first available");
+            struct v4l2_fmtdesc fmtdesc = {
+                .index = 0,
+                .type = V4L2_BUF_TYPE_VIDEO_CAPTURE,
+            };
+            if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
+                capture_fmt = fmtdesc.pixelformat;
+                ESP_LOGI(UVC_TAG, "Using format: 0x%08x (%s)", capture_fmt, fmtdesc.description);
+            } else {
+                ESP_LOGE(UVC_TAG, "No compatible JPEG input format");
+                return ESP_ERR_NOT_SUPPORTED;
+            }
         }
-
-        ESP_LOGI(UVC_TAG, "Selected camera format: 0x%x", capture_fmt);
     } else {
         capture_fmt = V4L2_PIX_FMT_YUV420;
     }
@@ -177,8 +215,12 @@ static esp_err_t video_start_cb(uvc_format_t uvc_format, int width, int height, 
                  width, height, errno, strerror(errno));
         return ESP_ERR_NOT_SUPPORTED;
     }
-    ESP_LOGI(UVC_TAG, "Camera format set: %dx%d, format=0x%x",
-             format.fmt.pix.width, format.fmt.pix.height, format.fmt.pix.pixelformat);
+    ESP_LOGI(UVC_TAG, "Camera format set: %dx%d, format=0x%x (%c%c%c%c)",
+             format.fmt.pix.width, format.fmt.pix.height, format.fmt.pix.pixelformat,
+             (char)(format.fmt.pix.pixelformat & 0xFF),
+             (char)((format.fmt.pix.pixelformat >> 8) & 0xFF),
+             (char)((format.fmt.pix.pixelformat >> 16) & 0xFF),
+             (char)((format.fmt.pix.pixelformat >> 24) & 0xFF));
 
     /* Configure camera controls for better image quality */
     struct v4l2_control ctrl;
