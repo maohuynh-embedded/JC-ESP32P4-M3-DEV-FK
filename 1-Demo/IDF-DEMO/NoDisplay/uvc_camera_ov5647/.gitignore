@@ -1,0 +1,8 @@
+build/
+.generated/
+dependencies.lock
+# temporary ignore
+sdkconfig.old
+tools/token.txt
+tools/*.log
+tools/*env

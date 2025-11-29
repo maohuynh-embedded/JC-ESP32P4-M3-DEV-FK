@@ -10,14 +10,6 @@
 #include "uvc_app_common.h"
 
 /* Task entry points - declared in respective task modules */
-extern void initCameraTask(void *arg);
-extern void mainCameraTask(void *arg);
-extern void terCameraTask(void *arg);
-
-extern void initEncodingTask(void *arg);
-extern void mainEncodingTask(void *arg);
-extern void terEncodingTask(void *arg);
-
 extern void initUvcStreamTask(void *arg);
 extern void mainUvcStreamTask(void *arg);
 extern void terUvcStreamTask(void *arg);
@@ -33,24 +25,18 @@ extern void terEventHandlerTask(void *arg);
 static const char *TAG = "os_cfg";
 
 /* Task priority definitions */
-#define TASK_PRIORITY_CAMERA        5
-#define TASK_PRIORITY_ENCODING      4
-#define TASK_PRIORITY_UVC_STREAM    3
+#define TASK_PRIORITY_UVC_STREAM    5  /* Highest: handles camera+encode+stream in callbacks */
 #define TASK_PRIORITY_EVENT         2
 #define TASK_PRIORITY_MONITOR       1
 
 /* Task stack sizes */
-#define STACK_SIZE_CAMERA           (4 * 1024)
-#define STACK_SIZE_ENCODING         (8 * 1024)
-#define STACK_SIZE_UVC_STREAM       (6 * 1024)  /* Increased: needs more for UVC callbacks */
-#define STACK_SIZE_EVENT            (4 * 1024)  /* Increased: was dangerously low (160 bytes free) */
-#define STACK_SIZE_MONITOR          (4 * 1024)  /* Increased: prints detailed logs */
+#define STACK_SIZE_UVC_STREAM       (8 * 1024)  /* Increased: handles camera+encode+stream */
+#define STACK_SIZE_EVENT            (4 * 1024)
+#define STACK_SIZE_MONITOR          (4 * 1024)
 
 /* Task configuration table */
 const taskcfg_st taskcfg_tb[NUMOFTASK] = {
     /* taskname         initfunc            mainfunc            terfunc             stacksize               priority                core */
-    {"camera",          initCameraTask,     mainCameraTask,     terCameraTask,      STACK_SIZE_CAMERA,      TASK_PRIORITY_CAMERA,   1},
-    {"encoding",        initEncodingTask,   mainEncodingTask,   terEncodingTask,    STACK_SIZE_ENCODING,    TASK_PRIORITY_ENCODING, 1},
     {"uvc_stream",      initUvcStreamTask,  mainUvcStreamTask,  terUvcStreamTask,   STACK_SIZE_UVC_STREAM,  TASK_PRIORITY_UVC_STREAM, 0},
     {"monitor",         initMonitorTask,    mainMonitorTask,    terMonitorTask,     STACK_SIZE_MONITOR,     TASK_PRIORITY_MONITOR,  0},
     {"event",           initEventHandlerTask, mainEventHandlerTask, terEventHandlerTask, STACK_SIZE_EVENT,   TASK_PRIORITY_EVENT,    0},

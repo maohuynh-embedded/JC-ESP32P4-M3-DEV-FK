@@ -21,6 +21,7 @@
 typedef struct {
     uint32_t frame_counter;
     bool initialized;
+    uint32_t capture_fmt;  // Camera output format (from video_start_cb)
 } camera_task_ctx_t;
 
 static camera_task_ctx_t s_cam_ctx = {0};
@@ -90,24 +91,31 @@ void mainCameraTask(void *arg)
             continue;
         }
 
-        /* Allocate frame buffer */
-        frame_buffer_t *frame = frame_buffer_alloc(cap_buf.bytesused);
+        /*
+         * Zero-copy optimization: Instead of copying to PSRAM (which encoder can't DMA from),
+         * send reference to camera mmap buffer directly.
+         * Encoding task will QBUF this buffer back to camera after encoding.
+         */
+        frame_buffer_t *frame = (frame_buffer_t *)heap_caps_malloc(sizeof(frame_buffer_t), MALLOC_CAP_DEFAULT);
         if (!frame) {
-            ESP_LOGE(CAM_TAG, "Failed to allocate frame buffer");
+            ESP_LOGE(CAM_TAG, "Failed to allocate frame metadata");
             ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_QBUF, &cap_buf);
             xSemaphoreGive(g_app_ctx.camera_mutex);
             g_app_ctx.frames_dropped++;
             continue;
         }
 
-        /* Copy frame data from mmap buffer */
-        memcpy(frame->data, g_app_ctx.uvc->cap_buffer[cap_buf.index], cap_buf.bytesused);
+        /* Reference camera mmap buffer (zero-copy) */
+        frame->data = g_app_ctx.uvc->cap_buffer[cap_buf.index];
         frame->size = cap_buf.bytesused;
+        frame->capacity = cap_buf.length;
         frame->timestamp = esp_timer_get_time();
         frame->frame_number = s_cam_ctx.frame_counter++;
+        frame->format = 0;  // Will be set by encoder
+        frame->camera_buf_index = cap_buf.index;
+        frame->is_camera_buffer = true;
 
-        /* Return buffer to camera driver */
-        ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_QBUF, &cap_buf);
+        /* DO NOT QBUF yet - encoding task will return it after encoding */
         xSemaphoreGive(g_app_ctx.camera_mutex);
 
         /* Update statistics */
@@ -116,10 +124,25 @@ void mainCameraTask(void *arg)
         /* Send to encoding queue */
         if (xQueueSend(raw_frame_queue, &frame, 0) != pdTRUE) {
             ESP_LOGW(CAM_TAG, "Raw frame queue full, dropping frame #%lu", frame->frame_number);
-            frame_buffer_free(frame);
+
+            /* Must return camera buffer if queue full! */
+            if (frame->is_camera_buffer) {
+                struct v4l2_buffer cam_buf;
+                memset(&cam_buf, 0, sizeof(cam_buf));
+                cam_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+                cam_buf.memory = V4L2_MEMORY_MMAP;
+                cam_buf.index = frame->camera_buf_index;
+                xSemaphoreTake(g_app_ctx.camera_mutex, portMAX_DELAY);
+                ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_QBUF, &cam_buf);
+                xSemaphoreGive(g_app_ctx.camera_mutex);
+                free(frame);
+            } else {
+                frame_buffer_free(frame);
+            }
             g_app_ctx.frames_dropped++;
         } else {
-            ESP_LOGD(CAM_TAG, "Captured frame #%lu (%zu bytes)", frame->frame_number, frame->size);
+            ESP_LOGI(CAM_TAG, "Sent frame #%lu to encoding (buf_idx=%d, %zu bytes)",
+                     frame->frame_number, frame->camera_buf_index, frame->size);
         }
 
         /* Small yield to prevent CPU hogging */

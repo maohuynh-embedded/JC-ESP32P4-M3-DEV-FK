@@ -94,33 +94,24 @@ void mainMonitorTask(void *arg)
         ESP_LOGI(MON_TAG, "Free PSRAM: %lu bytes (%.2f MB)", free_spiram, free_spiram / 1048576.0);
 
         /* Task stack high water marks */
-        TaskHandle_t cam_task = os_getTaskHandler(TASK_CAMERA_CAPTURE);
-        TaskHandle_t enc_task = os_getTaskHandler(TASK_ENCODING);
         TaskHandle_t uvc_task = os_getTaskHandler(TASK_UVC_STREAM);
+        TaskHandle_t mon_task = os_getTaskHandler(TASK_MONITOR);
         TaskHandle_t evt_task = os_getTaskHandler(TASK_EVENT_HANDLER);
-
-        if (cam_task) {
-            UBaseType_t cam_hwm = uxTaskGetStackHighWaterMark(cam_task);
-            ESP_LOGI(MON_TAG, "Camera stack:   %u bytes free", cam_hwm * sizeof(StackType_t));
-        }
-
-        if (enc_task) {
-            UBaseType_t enc_hwm = uxTaskGetStackHighWaterMark(enc_task);
-            ESP_LOGI(MON_TAG, "Encoding stack: %u bytes free", enc_hwm * sizeof(StackType_t));
-        }
 
         if (uvc_task) {
             UBaseType_t uvc_hwm = uxTaskGetStackHighWaterMark(uvc_task);
-            ESP_LOGI(MON_TAG, "UVC stack:      %u bytes free", uvc_hwm * sizeof(StackType_t));
+            ESP_LOGI(MON_TAG, "UVC stream stack: %u bytes free", uvc_hwm * sizeof(StackType_t));
+        }
+
+        if (mon_task) {
+            UBaseType_t mon_hwm = uxTaskGetStackHighWaterMark(mon_task);
+            ESP_LOGI(MON_TAG, "Monitor stack:    %u bytes free", mon_hwm * sizeof(StackType_t));
         }
 
         if (evt_task) {
             UBaseType_t evt_hwm = uxTaskGetStackHighWaterMark(evt_task);
-            ESP_LOGI(MON_TAG, "Event stack:    %u bytes free", evt_hwm * sizeof(StackType_t));
+            ESP_LOGI(MON_TAG, "Event stack:      %u bytes free", evt_hwm * sizeof(StackType_t));
         }
-
-        UBaseType_t mon_hwm = uxTaskGetStackHighWaterMark(NULL);
-        ESP_LOGI(MON_TAG, "Monitor stack:  %u bytes free", mon_hwm * sizeof(StackType_t));
 
         ESP_LOGI(MON_TAG, "====================================");
 

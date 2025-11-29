@@ -43,6 +43,10 @@ typedef struct {
     int64_t timestamp;
     uint32_t frame_number;
     uint32_t format;  // V4L2_PIX_FMT_*
+
+    /* For zero-copy: reference to camera buffer instead of PSRAM copy */
+    int camera_buf_index;  // -1 if using PSRAM, >=0 if using camera mmap buffer
+    bool is_camera_buffer; // true if data points to camera mmap buffer
 } frame_buffer_t;
 
 /* ========= SYSTEM EVENT TYPES ========= */
@@ -71,6 +75,8 @@ typedef struct uvc {
 
     int m2m_fd;
     uint8_t *m2m_cap_buffer;
+    uint8_t *m2m_out_buffer;        /* DMA-capable buffer for encoder input */
+    size_t m2m_out_buffer_size;
 
     uvc_fb_t fb;
 } uvc_t;

@@ -8,6 +8,7 @@
  */
 
 #include <string.h>
+#include <errno.h>
 #include <sys/ioctl.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -27,6 +28,30 @@ typedef struct {
 } encoding_task_ctx_t;
 
 static encoding_task_ctx_t s_enc_ctx = {0};
+
+/* Helper: Return camera buffer if zero-copy frame */
+static void return_camera_buffer_if_needed(frame_buffer_t *frame)
+{
+    if (frame->is_camera_buffer) {
+        struct v4l2_buffer cam_buf;
+        memset(&cam_buf, 0, sizeof(cam_buf));
+        cam_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        cam_buf.memory = V4L2_MEMORY_MMAP;
+        cam_buf.index = frame->camera_buf_index;
+
+        xSemaphoreTake(g_app_ctx.camera_mutex, portMAX_DELAY);
+        if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_QBUF, &cam_buf) != 0) {
+            ESP_LOGE(ENC_TAG, "Failed to return camera buffer %d (errno=%d: %s)",
+                     frame->camera_buf_index, errno, strerror(errno));
+        } else {
+            ESP_LOGD(ENC_TAG, "Returned camera buffer %d to driver", frame->camera_buf_index);
+        }
+        xSemaphoreGive(g_app_ctx.camera_mutex);
+        free(frame);
+    } else {
+        frame_buffer_free(frame);
+    }
+}
 
 /* ========== Init Phase ========== */
 void initEncodingTask(void *arg)
@@ -69,10 +94,19 @@ void mainEncodingTask(void *arg)
 
     /* Main loop */
     while (1) {
+        EventBits_t bits;
+
         /* Check for shutdown */
         if (xEventGroupGetBits(g_app_ctx.system_events) & EVENT_SHUTDOWN) {
             ESP_LOGI(ENC_TAG, "Shutdown requested");
             break;
+        }
+
+        /* Wait for streaming to be active */
+        bits = xEventGroupGetBits(g_app_ctx.system_events);
+        if (!(bits & EVENT_STREAMING_ACTIVE)) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
         }
 
         /* Wait for raw frame */
@@ -81,10 +115,17 @@ void mainEncodingTask(void *arg)
             continue;
         }
 
+        ESP_LOGI(ENC_TAG, "Received frame #%u, is_camera_buf=%d, index=%d, size=%zu",
+                 raw_frame->frame_number, raw_frame->is_camera_buffer,
+                 raw_frame->camera_buf_index, raw_frame->size);
+
         /* Encode frame - thread-safe with mutex */
         xSemaphoreTake(g_app_ctx.encoder_mutex, portMAX_DELAY);
 
-        /* Send raw frame to encoder input */
+        /* Send raw frame to encoder input
+         * Note: Frame is in PSRAM. If encoder doesn't support PSRAM DMA,
+         * it will reject with errno=22 (Invalid argument)
+         */
         memset(&m2m_out_buf, 0, sizeof(m2m_out_buf));
         m2m_out_buf.index  = 0;
         m2m_out_buf.type   = V4L2_BUF_TYPE_VIDEO_OUTPUT;
@@ -92,33 +133,42 @@ void mainEncodingTask(void *arg)
         m2m_out_buf.m.userptr = (unsigned long)raw_frame->data;
         m2m_out_buf.length = raw_frame->size;
 
+        ESP_LOGI(ENC_TAG, "QBUF input: addr=%p, size=%zu",
+                 raw_frame->data, raw_frame->size);
+
         if (ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_QBUF, &m2m_out_buf) != 0) {
-            ESP_LOGW(ENC_TAG, "Failed to queue encoder output buffer");
-            frame_buffer_free(raw_frame);
+            ESP_LOGE(ENC_TAG, "Failed to queue encoder input buffer (errno=%d: %s)",
+                     errno, strerror(errno));
+            return_camera_buffer_if_needed(raw_frame);
             xSemaphoreGive(g_app_ctx.encoder_mutex);
+            g_app_ctx.frames_dropped++;
             continue;
         }
+        ESP_LOGI(ENC_TAG, "Encoder input buffer queued successfully");
 
         /* Get encoded frame from encoder */
         memset(&m2m_cap_buf, 0, sizeof(m2m_cap_buf));
         m2m_cap_buf.type   = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         m2m_cap_buf.memory = V4L2_MEMORY_MMAP;
 
+        ESP_LOGI(ENC_TAG, "Calling DQBUF to get encoded frame...");
         if (ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_cap_buf) != 0) {
-            ESP_LOGW(ENC_TAG, "Failed to dequeue encoder capture buffer");
-            ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_out_buf);
-            frame_buffer_free(raw_frame);
+            ESP_LOGW(ENC_TAG, "Failed to dequeue encoder capture buffer (errno=%d: %s)", errno, strerror(errno));
+            ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_out_buf);  // Try to cleanup
+            return_camera_buffer_if_needed(raw_frame);
             xSemaphoreGive(g_app_ctx.encoder_mutex);
             continue;
         }
+        ESP_LOGD(ENC_TAG, "Encoded frame received: %zu bytes, flags=0x%x", 
+                 m2m_cap_buf.bytesused, m2m_cap_buf.flags);
 
         /* Allocate encoded frame buffer */
         frame_buffer_t *encoded_frame = frame_buffer_alloc(m2m_cap_buf.bytesused);
         if (!encoded_frame) {
-            ESP_LOGE(ENC_TAG, "Failed to allocate encoded frame buffer");
+            ESP_LOGE(ENC_TAG, "Failed to allocate encoded frame buffer (%zu bytes)", m2m_cap_buf.bytesused);
             ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_QBUF, &m2m_cap_buf);
             ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_out_buf);
-            frame_buffer_free(raw_frame);
+            return_camera_buffer_if_needed(raw_frame);
             xSemaphoreGive(g_app_ctx.encoder_mutex);
             g_app_ctx.frames_dropped++;
             continue;
@@ -137,19 +187,28 @@ void mainEncodingTask(void *arg)
         encoded_frame->format = format.fmt.pix.pixelformat;
 
         /* Return buffers to encoder */
-        ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_QBUF, &m2m_cap_buf);
-        ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_out_buf);
+        if (ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_QBUF, &m2m_cap_buf) != 0) {
+            ESP_LOGE(ENC_TAG, "Failed to requeue encoder capture buffer (errno=%d: %s)", errno, strerror(errno));
+        } else {
+            ESP_LOGD(ENC_TAG, "Encoder capture buffer requeued");
+        }
+        if (ioctl(g_app_ctx.uvc->m2m_fd, VIDIOC_DQBUF, &m2m_out_buf) != 0) {
+            ESP_LOGE(ENC_TAG, "Failed to dequeue encoder output buffer after encoding (errno=%d: %s)", errno, strerror(errno));
+        } else {
+            ESP_LOGD(ENC_TAG, "Encoder output buffer dequeued");
+        }
 
         xSemaphoreGive(g_app_ctx.encoder_mutex);
 
-        /* Free raw frame */
-        frame_buffer_free(raw_frame);
+        /* Return camera buffer to driver (using helper function) */
+        return_camera_buffer_if_needed(raw_frame);
 
         /* Update statistics */
         g_app_ctx.total_frames_encoded++;
         s_enc_ctx.encoded_count++;
 
-        ESP_LOGD(ENC_TAG, "Encoded frame #%lu (%zu bytes)", encoded_frame->frame_number, encoded_frame->size);
+        ESP_LOGD(ENC_TAG, "Frame #%lu encoded: %zu bytes (seq: %u)", 
+                 encoded_frame->frame_number, encoded_frame->size, encoded_frame->frame_number);
 
 #ifdef CONFIG_CAMERA_DEBUG_ENABLE
         /* Debug encoded frame */

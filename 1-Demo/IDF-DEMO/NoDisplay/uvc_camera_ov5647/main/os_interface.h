@@ -15,8 +15,6 @@ extern "C" {
 
 /* Task IDs */
 typedef enum {
-    TASK_CAMERA_CAPTURE,
-    TASK_ENCODING,
     TASK_UVC_STREAM,
     TASK_MONITOR,
     TASK_EVENT_HANDLER,
