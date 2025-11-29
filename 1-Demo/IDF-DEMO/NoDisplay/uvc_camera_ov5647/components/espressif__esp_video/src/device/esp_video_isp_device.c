@@ -385,7 +385,7 @@ static esp_err_t isp_get_output_frame_type(cam_ctlr_color_t ctlr_color, isp_colo
 }
 
 #if CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE
-static esp_err_t isp_stats_done(struct isp_video *isp_video, const void *buffer, uint32_t flags)
+static esp_err_t IRAM_ATTR isp_stats_done(struct isp_video *isp_video, const void *buffer, uint32_t flags)
 {
     esp_err_t ret = ESP_OK;
     uint32_t target_flags = ISP_STATS_FLAGS;
@@ -743,7 +743,7 @@ static esp_err_t isp_stop_ae(struct isp_video *isp_video)
     return ESP_OK;
 }
 
-static bool isp_sharpen_stats_done(isp_proc_handle_t proc, const esp_isp_sharpen_evt_data_t *edata, void *user_data)
+static bool IRAM_ATTR isp_sharpen_stats_done(isp_proc_handle_t proc, const esp_isp_sharpen_evt_data_t *edata, void *user_data)
 {
     esp_err_t ret;
     struct isp_video *isp_video = (struct isp_video *)user_data;

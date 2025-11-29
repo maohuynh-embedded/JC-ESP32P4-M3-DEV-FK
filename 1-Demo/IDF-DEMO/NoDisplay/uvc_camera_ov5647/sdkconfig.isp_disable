@@ -1,0 +1,2 @@
+# Disable broken ISP driver component
+CONFIG_ESP_DRIVER_ISP_ENABLE=n

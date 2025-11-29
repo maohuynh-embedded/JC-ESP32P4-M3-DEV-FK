@@ -222,42 +222,38 @@ format_found:
              (char)((format.fmt.pix.pixelformat >> 16) & 0xFF),
              (char)((format.fmt.pix.pixelformat >> 24) & 0xFF));
 
-    /* Configure camera controls for better image quality */
+    /* Configure camera controls for better image quality
+     * Note: These may not be supported by all camera drivers
+     */
     struct v4l2_control ctrl;
 
-    /* Enable auto white balance */
+    /* Query and list supported controls */
+    ESP_LOGI(UVC_TAG, "=== Querying camera controls ===");
+    struct v4l2_queryctrl qctrl;
+    memset(&qctrl, 0, sizeof(qctrl));
+    qctrl.id = V4L2_CTRL_FLAG_NEXT_CTRL;
+    while (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_QUERYCTRL, &qctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "  Control 0x%08x: %s (min=%d, max=%d, default=%d)",
+                 qctrl.id, qctrl.name, qctrl.minimum, qctrl.maximum, qctrl.default_value);
+        qctrl.id |= V4L2_CTRL_FLAG_NEXT_CTRL;
+    }
+
+    /* Try to enable auto white balance */
     ctrl.id = V4L2_CID_AUTO_WHITE_BALANCE;
     ctrl.value = 1;
     if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
         ESP_LOGI(UVC_TAG, "Auto white balance enabled");
+    } else {
+        ESP_LOGW(UVC_TAG, "Auto white balance not supported");
     }
 
-    /* Enable auto exposure */
+    /* Try to enable auto exposure */
     ctrl.id = V4L2_CID_EXPOSURE_AUTO;
-    ctrl.value = V4L2_EXPOSURE_AUTO;  // Auto exposure
+    ctrl.value = V4L2_EXPOSURE_AUTO;
     if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
         ESP_LOGI(UVC_TAG, "Auto exposure enabled");
-    }
-
-    /* Set saturation for better color */
-    ctrl.id = V4L2_CID_SATURATION;
-    ctrl.value = 64;  // Default saturation (range usually 0-128)
-    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
-        ESP_LOGI(UVC_TAG, "Saturation set to %d", ctrl.value);
-    }
-
-    /* Set contrast */
-    ctrl.id = V4L2_CID_CONTRAST;
-    ctrl.value = 32;  // Default contrast
-    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
-        ESP_LOGI(UVC_TAG, "Contrast set to %d", ctrl.value);
-    }
-
-    /* Set brightness */
-    ctrl.id = V4L2_CID_BRIGHTNESS;
-    ctrl.value = 0;  // Default brightness
-    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
-        ESP_LOGI(UVC_TAG, "Brightness set to %d", ctrl.value);
+    } else {
+        ESP_LOGW(UVC_TAG, "Auto exposure not supported");
     }
 
     memset(&req, 0, sizeof(req));
