@@ -173,11 +173,50 @@ static esp_err_t video_start_cb(uvc_format_t uvc_format, int width, int height, 
     format.fmt.pix.pixelformat = capture_fmt;
     
     if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_FMT, &format) != 0) {
-        ESP_LOGE(UVC_TAG, "Camera doesn't support %dx%d resolution (errno=%d: %s)", 
+        ESP_LOGE(UVC_TAG, "Camera doesn't support %dx%d resolution (errno=%d: %s)",
                  width, height, errno, strerror(errno));
         return ESP_ERR_NOT_SUPPORTED;
     }
-    ESP_LOGI(UVC_TAG, "Camera format set: %dx%d", format.fmt.pix.width, format.fmt.pix.height);
+    ESP_LOGI(UVC_TAG, "Camera format set: %dx%d, format=0x%x",
+             format.fmt.pix.width, format.fmt.pix.height, format.fmt.pix.pixelformat);
+
+    /* Configure camera controls for better image quality */
+    struct v4l2_control ctrl;
+
+    /* Enable auto white balance */
+    ctrl.id = V4L2_CID_AUTO_WHITE_BALANCE;
+    ctrl.value = 1;
+    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "Auto white balance enabled");
+    }
+
+    /* Enable auto exposure */
+    ctrl.id = V4L2_CID_EXPOSURE_AUTO;
+    ctrl.value = V4L2_EXPOSURE_AUTO;  // Auto exposure
+    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "Auto exposure enabled");
+    }
+
+    /* Set saturation for better color */
+    ctrl.id = V4L2_CID_SATURATION;
+    ctrl.value = 64;  // Default saturation (range usually 0-128)
+    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "Saturation set to %d", ctrl.value);
+    }
+
+    /* Set contrast */
+    ctrl.id = V4L2_CID_CONTRAST;
+    ctrl.value = 32;  // Default contrast
+    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "Contrast set to %d", ctrl.value);
+    }
+
+    /* Set brightness */
+    ctrl.id = V4L2_CID_BRIGHTNESS;
+    ctrl.value = 0;  // Default brightness
+    if (ioctl(g_app_ctx.uvc->cap_fd, VIDIOC_S_CTRL, &ctrl) == 0) {
+        ESP_LOGI(UVC_TAG, "Brightness set to %d", ctrl.value);
+    }
 
     memset(&req, 0, sizeof(req));
     req.count  = BUFFER_COUNT;
