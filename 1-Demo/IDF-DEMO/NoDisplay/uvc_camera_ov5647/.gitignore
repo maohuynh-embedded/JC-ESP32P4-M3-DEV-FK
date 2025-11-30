@@ -1,4 +1,5 @@
 build/
+.claude/
 .generated/
 dependencies.lock
 # temporary ignore
