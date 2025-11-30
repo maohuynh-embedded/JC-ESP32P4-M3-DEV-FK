@@ -6,7 +6,7 @@ dependencies:
       require: private
       version: '>=4.1'
     source:
-      registry_url: https://components.espressif.com/
+      registry_url: https://components.espressif.com
       type: service
     version: 0.5.3
   espressif/esp_cam_sensor:
@@ -65,15 +65,9 @@ dependencies:
       require: private
       version: '>=5.3'
     source:
-      registry_url: https://components.espressif.com
+      registry_url: https://components.espressif.com/
       type: service
     version: 0.0.6
-  espressif/esp_video:
-    dependencies: []
-    source:
-      path: /home/dev/workspace/JC-ESP32P4-M3-DEV/1-Demo/IDF-DEMO/NoDisplay/uvc_camera_ov5647/components/espressif__esp_video
-      type: local
-    version: 0.8.0~3
   espressif/tinyusb:
     component_hash: 214989d502fc168241a4a4f83b097d8ac44a93cd6f1787b4ac10069a8b3bebd3
     dependencies:
@@ -115,14 +109,12 @@ dependencies:
       type: idf
     version: 5.5.1
 direct_dependencies:
-- espressif/cmake_utilities
 - espressif/esp_cam_sensor
 - espressif/esp_h264
 - espressif/esp_ipa
-- espressif/esp_video
+- espressif/esp_sccb_intf
 - espressif/tinyusb
 - espressif/usb_device_uvc
-- idf
-manifest_hash: 301a6dd2bf31966167005a1affa0f42910d0016e6a7c021863f441584bdc4d39
+manifest_hash: da9a1f34b6012d723312196b21856a7767b1b47b8df4f149a1732cff02ff8a0a
 target: esp32p4
 version: 2.0.0

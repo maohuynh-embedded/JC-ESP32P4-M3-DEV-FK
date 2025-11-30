@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "uvc_stream_task.c"
+        "uvc_app_common.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        freertos
+        video
+        espressif__usb_device_uvc
+        espressif__tinyusb
+        os
+        camera
+    PRIV_REQUIRES
+        esp_timer
+        driver
+        esp_event
+)
